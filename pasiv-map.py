@@ -7,9 +7,9 @@ from argparse import RawTextHelpFormatter
 
 lgreen = "\033[1;32;49m"
 lred = "\033[1;31;49m"
-yellow = "\033[1;33;49m"                                                                                                                                                                                                                     
-white = "\033[1;37;49m"                                                                                                                                                                                                                      
-                                                                                                                                                                                                                                             
+yellow = "\033[1;33;49m"
+white = "\033[1;37;49m"
+
 welcome_msg = '''A tool to analyze .pcapng files and print a readable network map output.
 By Default the tool will print only visible hosts from the .pcapng file; Obtaining the Hostname from any DNS responses or NBTName's seen in the packets
 HOSTNAME 192.168.0.1 ::ffff:c0a8:0001 (AB-CD-EF-12-34-56) [VLAN ID: 20]
@@ -33,47 +33,47 @@ This option will not show any ports over 1024 (Source or Destination)
 You can only display destination ports by using the option --only-destination
 
 The option --llmnr allows you to display LLMNR traffic that has been broadcast under each host;
-The host broadcast LLMNR queries for;                                                                                                                                                                                                        
+The host broadcast LLMNR queries for;
 HOSTNAME.
 
 The option --search allows you to use a regex string to search in the RAW packet data;
 --search 'xml version="1.0"'
 This will print interesting packets below the network map
 ```
-[+] Interesting Packets found based on your search regex;                                                                                                                                                                                    
-###[ Ethernet ]###                                                                                                                                                                                                                           
-  dst       = AB-CD-EF-12-34-56                                                                                                                                                                                                              
-  src       = AB-CD-EF-34-56-78                                                                                                                                                                                                            
-  type      = IPv6                                                                                                                                                                                                                           
-###[ IPv6 ]###                                                                                                                                                                                                                               
-     version   = 6                                                                                                                                                                                                                           
-     tc        = 0                                                                                                                                                                                                                           
-     fl        = 729563                                                                                                                                                                                                                      
-     plen      = 664                                                                                                                                                                                                                         
-     nh        = UDP                                                                                                                                                                                                                         
-     hlim      = 1                                                                                                                                                                                                                           
-     src       = ::ffff:c0a8:0001                                                                                                                                                                                                
-     dst       = ::ffff:c0a8:0002                                                                                                                                                                                                                
-###[ UDP ]###                                                                                                                                                                                                                                
-        sport     = 64753                                                                                                                                                                                                                    
-        dport     = 3702                                                                                                                                                                                                                     
-        len       = 664                                                                                                                                                                                                                      
-        chksum    = 0x1acb                                                                                                                                                                                                                   
-###[ Raw ]###                                                                                                                                                                                                                                
+[+] Interesting Packets found based on your search regex;
+###[ Ethernet ]###
+  dst       = AB-CD-EF-12-34-56
+  src       = AB-CD-EF-34-56-78
+  type      = IPv6
+###[ IPv6 ]###
+     version   = 6
+     tc        = 0
+     fl        = 729563
+     plen      = 664
+     nh        = UDP
+     hlim      = 1
+     src       = ::ffff:c0a8:0001
+     dst       = ::ffff:c0a8:0002
+###[ UDP ]###
+        sport     = 64753
+        dport     = 3702
+        len       = 664
+        chksum    = 0x1acb
+###[ Raw ]###
            load      = '<?xml version="1.0" encoding="utf-8"?><soap:Envelope xmlns:soap="http://www.w3.org/2003/05/soap-envelope" xmlns:wsa="http://schemas.xmlsoap.org/ws/2004/08/addressing" xmlns:wsd="http://schemas.xmlsoap.org/ws/2005/04/discovery"><soap:Header><wsa:To>urn:schemas-xmlsoap-org:ws:2005:04:discovery</wsa:To><wsa:Action>http://schemas.xmlsoap.org/ws/2005/04/discovery/Resolve</wsa:Action><wsa:MessageID>urn:uuid:6a36987e-8408-4977-b74d-60e1bccbce4d</wsa:MessageID></soap:Header><soap:Body><wsd:Resolve><wsa:EndpointReference><wsa:Address>urn:uuid:c5c8cfab-14f2-566d-8bfe-d8764cbafe81</wsa:Address></wsa:EndpointReference></wsd:Resolve></soap:Body></soap:Envelope>'
 ```
 
 Note: The Hostnames, IPv4, IPv6, VLAN ID, Services, Broadcasts and RAW packet data are all subject to showing more/less data dependent on the contents of the passive recon. At the very least MAC address's of discovered devices will be shown.
-'''                                                                                                                                                                                                                                          
-                                                                                                                                                                                                                                             
-parser = argparse.ArgumentParser(description=welcome_msg.strip(), formatter_class=RawTextHelpFormatter)                                                                                                                                              
+'''
+
+parser = argparse.ArgumentParser(description=welcome_msg.strip(), formatter_class=RawTextHelpFormatter)
 run = parser.add_mutually_exclusive_group(required=True)
 run.add_argument("-f", "--file", help="Set the pcap file")
 run.add_argument("-o", "--output", help="If file is not used use this argument to capture network traffic and save to .pgcapng file.")
-parser.add_argument("-p", "--ports", action="store_true", help="Include source and destination ports, source ports can clutter up the output so a filter or only showing the destination is reccomended.")                                          
-parser.add_argument("-pf", "--port-filter", help="Use this to filter the visible ports, Sometimes windows systems make alot of noise on ports > 10000 you can use this option to only show ports Less than X. e.g. pasiv-map.py -f input.pcapng --ports --port-filter 10000 - this will show ports less than 10000")                                                                                                                                                                      
+parser.add_argument("-p", "--ports", action="store_true", help="Include source and destination ports, source ports can clutter up the output so a filter or only showing the destination is reccomended.")
+parser.add_argument("-pf", "--port-filter", help="Use this to filter the visible ports, Sometimes windows systems make alot of noise on ports > 10000 you can use this option to only show ports Less than X. e.g. pasiv-map.py -f input.pcapng --ports --port-filter 10000 - this will show ports less than 10000")
 parser.add_argument("-d", "--only-destination", action="store_true", help="Only Display Destination Ports.")
-parser.add_argument("-l", "--llmnr", action="store_true", help="Include LLMNR broadcast traffic seen underneath each host.")                                          
+parser.add_argument("-l", "--llmnr", action="store_true", help="Include LLMNR broadcast traffic seen underneath each host.")
 parser.add_argument("-s", "--search", help="Use a regex to search in the raw data in the packets")
 args = parser.parse_args()
 

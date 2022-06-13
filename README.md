@@ -2,12 +2,12 @@
 A Passive Recon Network Map Tool
 
 # Usage
-To use the tool either a .pcapng file must be specified or an output must be specified to save the data to.
+To use the tool either a .pcap file must be specified or an output must be specified to save the data to.
 Use --file or --output for either of these options
 
 The default output with no additional options will just show data it is able to gather from hosts. NAME (Via DNS queries from other hosts, NBT Lookups from other hosts), IPv4, IPv6, MAC, VLAN (From Tagged packets)
 ```bash
-$ pasiv-map.py --file test.pcapng
+$ pasiv-map.py --file test.pcap
 
 HOSTNAME 192.168.0.1 ::ffff:c0a8:0001 (AB-CD-EF-12-34-56) [VLAN ID: 20]
 
@@ -66,7 +66,7 @@ This will print interesting packets below the network map
 # Example Output
 
 ```bash
-$ pasiv-map.py --file test.pcapng --ports --llmnr --search 'xml version="1.0"'
+$ pasiv-map.py --file test.pcap --ports --llmnr --search 'xml version="1.0"'
 
 HOSTNAME 192.168.0.1 ::ffff:c0a8:0001 (AB-CD-EF-12-34-56) [VLAN ID: 20]
 PORT    DIRECTION   SERVICE FIRST TIMESTAMP

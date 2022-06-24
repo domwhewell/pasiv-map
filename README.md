@@ -14,6 +14,13 @@ HOSTNAME 192.168.0.1 ::ffff:c0a8:0001 (AB-CD-EF-12-34-56) [VLAN ID: 20]
 HOSTNAME1 192.168.0.2 ::ffff:c0a8:0002 (AB-CD-EF-34-56-78) [VLAN ID: 20]
 ```
 
+If using the --range option you can specify a network subnet you wish to include in the output, packets seen out of that subnet will be ommited from the output.
+For example;
+```bash
+--range 10.0.0.0/8
+```
+This will cause the tool to only print packets that where sent within that subnet, Any packets seen as destinations our sources from 192.168.0.1 would be discarded.
+
 By using the --ports option ports will be added below each host
 ```bash
 PORT    DIRECTION   SERVICE FIRST TIMESTAMP
@@ -34,6 +41,18 @@ The option --llmnr allows you to display LLMNR traffic that has been broadcast u
 ```bash
 The host broadcast LLMNR queries for;
 HOSTNAME.
+```
+The option --syslog allows you to display plaintext syslog traffic under each host;
+```bash
+The following syslog traffic was found;
+LOGLINE
+```
+
+The option --credentials will make the tool search for any HTTP Basic, HTTP Digest in packets.
+This will print these below the network map
+```bash
+[+] Packets Containing Credentials found;
+192.168.0.2=>192.168.0.1 => (HTTP Basic Authentication) username:password
 ```
 
 The option --search allows you to use a regex string to search in the RAW packet data;

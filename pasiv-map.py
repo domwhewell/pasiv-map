@@ -16,6 +16,11 @@ HOSTNAME 192.168.0.1 ::ffff:c0a8:0001 (AB-CD-EF-12-34-56) [VLAN ID: 20]
 
 HOSTNAME1 192.168.0.2 ::ffff:c0a8:0002 (AB-CD-EF-34-56-78) [VLAN ID: 20]
 
+If using the --range option you can specify a network subnet you wish to include in the output, packets seen out of that subnet will be ommited from the output.
+For example;
+--range 10.0.0.0/8
+This will cause the tool to only print packets that where sent within that subnet, Any packets seen as destinations our sources from 192.168.0.1 would be discarded.
+
 If using the --ports option ports will be added below each host;
 PORT    DIRECTION   SERVICE FIRST TIMESTAMP
 53/udp  Destination DNS     01/01/1999, 00:00:00
@@ -30,11 +35,20 @@ The above output is a high port that was opened temporarily you can filter only 
 --port-filter 1024
 This option will not show any ports over 1024 (Source or Destination)
 
-You can only display destination ports by using the option --only-destination
-
 The option --llmnr allows you to display LLMNR traffic that has been broadcast under each host;
 The host broadcast LLMNR queries for;
 HOSTNAME.
+
+The option --syslog allows you to display plaintext syslog traffic under each host;
+The following syslog traffic was found;
+LOGLINE
+
+The option --credentials will make the tool search for any HTTP Basic, HTTP Digest in packets.
+This will print these below the network map
+```
+[+] Packets Containing Credentials found;
+192.168.0.2=>192.168.0.1 => (HTTP Basic Authentication) username:password
+```
 
 The option --search allows you to use a regex string to search in the RAW packet data;
 --search 'xml version="1.0"'
@@ -70,9 +84,9 @@ parser = argparse.ArgumentParser(description=welcome_msg.strip(), formatter_clas
 run = parser.add_mutually_exclusive_group(required=True)
 run.add_argument("-f", "--file", help="Set the pcap file")
 run.add_argument("-o", "--output", help="If file is not used use this argument to capture network traffic and save to .pgcapng file.")
+parser.add_argument("-r", "--range", help="Only display IP address within the specified subnet. e.g. 10.0.0.0/8 or 2001:db8:abcd:0012::0/64")
 parser.add_argument("-p", "--ports", action="store_true", help="Include source and destination ports, source ports can clutter up the output so a filter or only showing the destination is reccomended.")
 parser.add_argument("-pf", "--port-filter", help="Use this to filter the visible ports, Sometimes windows systems make alot of noise on ports > 10000 you can use this option to only show ports Less than X. e.g. pasiv-map.py -f input.pcap --ports --port-filter 10000 - this will show ports less than 10000")
-parser.add_argument("-r", "--range", help="Only display IP address within the specified subnet. e.g. 10.0.0.0/8")
 parser.add_argument("--llmnr", action="store_true", help="Include LLMNR broadcast traffic seen underneath each host.")
 parser.add_argument("--syslog", action="store_true", help="Include Syslog traffic seen underneath each host.")
 parser.add_argument("--credentials", action="store_true", help="Print any discovered credentials. HTTP Basic / Digest")
@@ -151,10 +165,14 @@ def http_auth(http_headers):
     response = ""
     if "Authorization" in http_headers:
         if "Basic" in http_headers["Authorization"]:
-            coded_string = line.split('Basic')[1].strip()
+            coded_string = http_headers["Authorization"].split('Basic')[1].strip()
             response = "(HTTP Basic Authentication) "+base64.b64decode(coded_string).decode()
         elif "Digest" in http_headers["Authorization"]:
-            response = "(HTTP Digest Authentication) "+line.split('response="')[1].split('"')[0]
+            response = "(HTTP Digest Authentication) "+http_headers["Authorization"].split('response="')[1].split('"')[0]
+    return response
+
+def ntlm_auth():
+    response = ""
     return response
 
 def extract_payload(http_headers, payload):
@@ -258,6 +276,16 @@ def analyse_packet(packet):
                             network_map[packet.src]['SYSLOG_data'].append(decoded_data)
                     else:
                         network_map[packet.src]['SYSLOG_data'] = [decoded_data]
+            if args.credentials:
+                if re.search("LOGIN \w+ \w+" ,decoded_data):
+                    user_pass = decoded_data.split("LOGIN")[1].strip().replace(" ", ":")
+                    authorization = "(IMAP Plaintext) "+user_pass
+                    if network_map[packet.src].get('ipv4') and network_map[packet.dst].get('ipv4'):
+                        line = network_map[packet.src]['ipv4']+"=>"+network_map[packet.dst]['ipv4']+" => "+authorization
+                    elif network_map[packet.src].get('ipv6') and network_map[packet.dst].get('ipv6'):
+                        line = network_map[packet.src]['ipv6']+"=>"+network_map[packet.dst]['ipv6']+" => "+authorization
+                    if line not in credential_packets:
+                        credential_packets.append(line)
             if http_header_raw:
                 if args.credentials:
                     authorization = http_auth(http_header_parsed)
@@ -285,7 +313,7 @@ if __name__ == "__main__":
             subnet = ipaddress.ip_network(args.range)
         except Exception as e:
             print(lred+"[!]"+white+" "+str(e))
-            print(lred+"[!]"+white+" E.g. 192.168.0.0/28 or 2001:db8:abcd:0012::0/64.")
+            print(lred+"[!]"+white+" E.g. 10.0.0.0/8 or 2001:db8:abcd:0012::0/64.")
             exit()
     else:
         subnet = None

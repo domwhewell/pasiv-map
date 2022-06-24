@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-import argparse, socket, re, base64
+import argparse, socket, re, base64, uuid, ipaddress
 from datetime import datetime
 from collections import Counter
 from scapy.all import rdpcap, sniff, wrpcap
@@ -72,16 +72,24 @@ run.add_argument("-f", "--file", help="Set the pcap file")
 run.add_argument("-o", "--output", help="If file is not used use this argument to capture network traffic and save to .pgcapng file.")
 parser.add_argument("-p", "--ports", action="store_true", help="Include source and destination ports, source ports can clutter up the output so a filter or only showing the destination is reccomended.")
 parser.add_argument("-pf", "--port-filter", help="Use this to filter the visible ports, Sometimes windows systems make alot of noise on ports > 10000 you can use this option to only show ports Less than X. e.g. pasiv-map.py -f input.pcap --ports --port-filter 10000 - this will show ports less than 10000")
-parser.add_argument("-d", "--only-destination", action="store_true", help="Only Display Destination Ports.")
+parser.add_argument("-r", "--range", help="Only display IP address within the specified subnet. e.g. 10.0.0.0/8")
 parser.add_argument("--llmnr", action="store_true", help="Include LLMNR broadcast traffic seen underneath each host.")
 parser.add_argument("--syslog", action="store_true", help="Include Syslog traffic seen underneath each host.")
 parser.add_argument("--credentials", action="store_true", help="Print any discovered credentials. HTTP Basic / Digest")
+parser.add_argument("--extract-img", action="store_true", help="Extract Images from HTTP responses.")
 parser.add_argument("-s", "--search", help="Use a regex to search in the raw data in the packets")
 args = parser.parse_args()
 
 def pprint(network):
     for mac in network:
         if mac != "ff:ff:ff:ff:ff:ff":
+            if subnet:
+                if "ipv4" in network[mac]:
+                    if ipaddress.ip_address(network[mac]['ipv4']) not in subnet:
+                        continue
+                elif "ipv6" in network[mac]:
+                    if ipaddress.ip_address(network[mac]['ipv6']) not in subnet:
+                        continue
             host = []
             if "NBTName" in network[mac]:
                 host.append(network[mac]['NBTName'])
@@ -94,22 +102,34 @@ def pprint(network):
             host.append("("+mac+")")
             if "vlan_id" in network[mac]:
                 host.append("[VLAN ID: "+str(network[mac]['vlan_id'])+"]")
-            print(" ".join(host))
             if args.ports:
                 if "ports" in network[mac]:
-                    print ("{:<8} {:<15} {:<10} {:<10}".format('PORT','DIRECTION','SERVICE','FIRST TIMESTAMP'))
-                    for port, protocol, direction, timestamp  in sorted(network[mac]['ports']):
-                        try:
-                            service = socket.getservbyport(port, protocol)
-                        except OSError:
-                            service = ""
-                        if args.port_filter:
-                            if port > int(args.port_filter):
-                                continue
-                        if args.only_destination:
-                            if direction != "Destination":
-                                continue
-                        print ("{:<8} {:<15} {:<10} {:<10}".format(str(port)+"/"+protocol, direction, service, datetime.fromtimestamp(timestamp).strftime("%d/%m/%Y, %H:%M:%S")))
+                    if args.port_filter:
+                        filtered_ports = [i for i in network[mac]['ports'] if i[0] < int(args.port_filter)]
+                        if filtered_ports:
+                            print(" ".join(host))
+                            print ("{:<8} {:<15} {:<10} {:<10}".format('PORT','DIRECTION','SERVICE','FIRST TIMESTAMP'))
+                            for port, protocol, direction, timestamp  in sorted(filtered_ports):
+                                try:
+                                    service = socket.getservbyport(port, protocol)
+                                except OSError:
+                                    service = ""
+                                print ("{:<8} {:<15} {:<10} {:<10}".format(str(port)+"/"+protocol, direction, service, datetime.fromtimestamp(timestamp).strftime("%d/%m/%Y, %H:%M:%S")))
+                        else:
+                            continue
+                    else:
+                        print(" ".join(host))
+                        print ("{:<8} {:<15} {:<10} {:<10}".format('PORT','DIRECTION','SERVICE','FIRST TIMESTAMP'))
+                        for port, protocol, direction, timestamp  in sorted(network[mac]['ports']):
+                            try:
+                                service = socket.getservbyport(port, protocol)
+                            except OSError:
+                                service = ""
+                            print ("{:<8} {:<15} {:<10} {:<10}".format(str(port)+"/"+protocol, direction, service, datetime.fromtimestamp(timestamp).strftime("%d/%m/%Y, %H:%M:%S")))
+                else:
+                    continue
+            else:
+                print(" ".join(host))
             if args.llmnr:
                 if "LLMNR_queries" in network[mac]:
                     print("The host broadcast LLMNR queries for;")
@@ -127,17 +147,34 @@ def sniff_to_file(output):
     packets = sniff()
     wrpcap(output, packets)
 
-def process_http(data):
+def http_auth(http_headers):
     response = ""
-    for line in data.splitlines():
-        coded_string = ""
-        if "Authorization:" in line:
-            if "Basic" in line:
-                coded_string = line.split('Basic')[1].strip()
-                response = "(HTTP Basic Authentication) "+base64.b64decode(coded_string).decode()
-            elif "Digest" in line:
-                response = "(HTTP Digest Authentication) "+line.split('response="')[1].split('"')[0]
+    if "Authorization" in http_headers:
+        if "Basic" in http_headers["Authorization"]:
+            coded_string = line.split('Basic')[1].strip()
+            response = "(HTTP Basic Authentication) "+base64.b64decode(coded_string).decode()
+        elif "Digest" in http_headers["Authorization"]:
+            response = "(HTTP Digest Authentication) "+line.split('response="')[1].split('"')[0]
     return response
+
+def extract_payload(http_headers, payload):
+    payload_type = http_headers["Content-Type"].split("/")[1].split(";")[0]
+    try:
+        if "Content-Encoding" in http_headers.keys():
+            if http_headers["Content-Encoding"] == "gzip":
+                file = zlib.decompress(payload, 16+zlib.MAX_WBITS)
+            elif http_headers["Content-Encoding"] == "deflate":
+                file = zlib.decompress(payload)
+            else:
+                file = payload
+        else:
+            file = payload
+    except:
+        pass
+
+    filename = uuid.uuid4().hex + "." + payload_type
+    with open(filename, "wb") as fd:
+        fd.write(file)
 
 def analyse_packet(packet):
     # Get all the information we can from the source Key will be the MAC address
@@ -169,7 +206,7 @@ def analyse_packet(packet):
                      network_map[packet.src]['ports'] = [(payload.sport, payload.__class__.__name__.lower(), "Source", int(packet.time))]
             if hasattr(payload, "dport"):
                  if "ports" in network_map[packet.dst]:
-                     if (payload.dport, payload.__class__.__name__.lower(), "Destination") not in [(i[0], i[1], i[2]) for i in network_map[packet.src]['ports']]:
+                     if (payload.dport, payload.__class__.__name__.lower(), "Destination") not in [(i[0], i[1], i[2]) for i in network_map[packet.dst]['ports']]:
                          network_map[packet.dst]['ports'].append((payload.dport, payload.__class__.__name__.lower(), "Destination", int(packet.time)))
                  else:
                      network_map[packet.dst]['ports'] = [(payload.dport, payload.__class__.__name__.lower(), "Destination", int(packet.time))]
@@ -199,24 +236,31 @@ def analyse_packet(packet):
                             if network_map[mac]['ipv6'] == payload.rdata:
                                 network_map[mac]['DNS'] = payload.rrname.decode("utf-8").strip()
         elif payload.__class__.__name__ == "Raw":
+            raw_data = payload.load
+            decoded_data = ""
+            http_header_raw = ""
             try:
-                raw_data = payload.load.decode().strip()
+                http_header_raw = raw_data[raw_data.index(b"HTTP/1"):raw_data.index(b"\r\n\r\n")+2]
+                http_header_parsed = dict(re.findall(r"(?P<name>.*?): (?P<value>.*?)\r\n", http_header_raw.decode("utf8")))
             except:
-                # If we cant decode skip to the next packet
-                continue
+                pass
+            try:
+                decoded_data = payload.load.decode().strip()
+            except:
+                pass
             if args.search:
-                if re.search(args.search, raw_data):
+                if re.search(args.search, decoded_data):
                     interesting_packets.append(packet)
             if args.syslog:
                 if payload.underlayer.dport == 514:
                     if "SYSLOG_data" in network_map[packet.src]:
                         if raw_data not in network_map[packet.src]['SYSLOG_data']:
-                            network_map[packet.src]['SYSLOG_data'].append(raw_data)
+                            network_map[packet.src]['SYSLOG_data'].append(decoded_data)
                     else:
-                        network_map[packet.src]['SYSLOG_data'] = [raw_data]
-            if args.credentials:
-                if "HTTP/1.1" in raw_data:
-                    authorization = process_http(raw_data)
+                        network_map[packet.src]['SYSLOG_data'] = [decoded_data]
+            if http_header_raw:
+                if args.credentials:
+                    authorization = http_auth(http_header_parsed)
                     if authorization:
                         if network_map[packet.src].get('ipv4') and network_map[packet.dst].get('ipv4'):
                             line = network_map[packet.src]['ipv4']+"=>"+network_map[packet.dst]['ipv4']+" => "+authorization
@@ -224,11 +268,27 @@ def analyse_packet(packet):
                             line = network_map[packet.src]['ipv6']+"=>"+network_map[packet.dst]['ipv6']+" => "+authorization
                         if line not in credential_packets:
                             credential_packets.append(line)
+                if args.extract_img:
+                     #if packet.sport == 80:
+                     if "Content-Type" in http_header_parsed.keys():
+                         if "image" in http_header_parsed["Content-Type"]:
+                             image_payload = raw_data[raw_data.index(b"\r\n\r\n")+4:]
+                             if image_payload:
+                                 extract_payload(http_header_parsed, image_payload)
 
 if __name__ == "__main__":
     network_map = {}
     interesting_packets = []
     credential_packets = []
+    if args.range:
+        try:
+            subnet = ipaddress.ip_network(args.range)
+        except Exception as e:
+            print(lred+"[!]"+white+" "+str(e))
+            print(lred+"[!]"+white+" E.g. 192.168.0.0/28 or 2001:db8:abcd:0012::0/64.")
+            exit()
+    else:
+        subnet = None
     if args.file:
         print(lgreen+"[+]"+white+" Loading from pcap file: "+args.file)
         sniff(offline=args.file, prn=analyse_packet, store=0)
